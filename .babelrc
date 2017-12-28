@@ -5,9 +5,14 @@
     "stage-0"
   ],
   "plugins": [
+    "transform-runtime",
     [
       "module-alias",
       [
+        {
+          "expose": "root",
+          "src": "."
+        },
         {
           "expose": "components",
           "src": "src/core/components"
@@ -15,6 +20,10 @@
         {
           "expose": "core",
           "src": "src/core"
+        },
+        {
+          "expose": "plugins",
+          "src": "src/plugins"
         },
         {
           "expose": "img",

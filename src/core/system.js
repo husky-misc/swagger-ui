@@ -1,3 +1,4 @@
+import React from "react"
 import { createStore, applyMiddleware, bindActionCreators, compose } from "redux"
 import Im, { fromJS, Map } from "immutable"
 import deepExtend from "deep-extend"
@@ -67,6 +68,14 @@ export default class Store {
     if(rebuild) {
       this.buildSystem()
     }
+    
+    if(Array.isArray(plugins)) {
+      plugins.forEach(plugin => {
+        if(plugin.afterLoad) {
+          plugin.afterLoad(this.getSystem())
+        }
+      })
+    }
   }
 
   buildSystem(buildReducer=true) {
@@ -76,7 +85,7 @@ export default class Store {
     this.boundSystem = Object.assign({},
         this.getRootInjects(),
         this.getWrappedAndBoundActions(dispatch),
-        this.getBoundSelectors(getState, this.getSystem),
+        this.getWrappedAndBoundSelectors(getState, this.getSystem),
         this.getStateThunks(getState),
         this.getFn(),
         this.getConfigs()
@@ -97,7 +106,8 @@ export default class Store {
       getComponents: this.getComponents.bind(this),
       getState: this.getStore().getState,
       getConfigs: this._getConfigs.bind(this),
-      Im
+      Im,
+      React
     }, this.system.rootInjects || {})
   }
 
@@ -176,6 +186,36 @@ export default class Store {
       })
   }
 
+  getWrappedAndBoundSelectors(getState, getSystem) {
+    let selectorGroups = this.getBoundSelectors(getState, getSystem)
+      return objMap(selectorGroups, (selectors, selectorGroupName) => {
+        let stateName = [selectorGroupName.slice(0, -9)] // selectors = 9 chars
+        let wrappers = this.system.statePlugins[stateName].wrapSelectors
+          if(wrappers) {
+            return objMap(selectors, (selector, selectorName) => {
+              let wrap = wrappers[selectorName]
+              if(!wrap) {
+                return selector
+              }
+
+              if(!Array.isArray(wrap)) {
+                wrap = [wrap]
+              }
+              return wrap.reduce((acc, fn) => {
+                let wrappedSelector = (...args) => {
+                  return fn(acc, this.getSystem())(getState().getIn(stateName), ...args)
+                }
+                if(!isFn(wrappedSelector)) {
+                  throw new TypeError("wrapSelector needs to return a function that returns a new function (ie the wrapped action)")
+                }
+                return wrappedSelector
+              }, selector || Function.prototype)
+            })
+          }
+        return selectors
+      })
+  }
+
   getStates(state) {
     return Object.keys(this.system.statePlugins).reduce((obj, key) => {
       obj[key] = state.get(key)
@@ -197,8 +237,17 @@ export default class Store {
   }
 
   getComponents(component) {
-    if(typeof component !== "undefined")
+    const res = this.system.components[component]
+
+    if(Array.isArray(res)) {
+      return res.reduce((ori, wrapper) => {
+        return wrapper(ori, this.getSystem())
+      })
+    }
+    if(typeof component !== "undefined") {
       return this.system.components[component]
+    }
+
     return this.system.components
   }
 
@@ -225,8 +274,9 @@ export default class Store {
 
     dispatch = dispatch || this.getStore().dispatch
 
-    const process = creator =>{
+    const actions = this.getActions()
 
+    const process = creator =>{
       if( typeof( creator ) !== "function" ) {
         return objMap(creator, prop => process(prop))
       }
@@ -240,18 +290,17 @@ export default class Store {
           action = {type: NEW_THROWN_ERR, error: true, payload: serializeError(e) }
         }
         finally{
-          return action
+          return action // eslint-disable-line no-unsafe-finally
         }
       }
 
     }
-    return objMap(this.getActions(), actionCreator => bindActionCreators( process( actionCreator ), dispatch ) )
+    return objMap(actions, actionCreator => bindActionCreators( process( actionCreator ), dispatch ) )
   }
 
   getMapStateToProps() {
     return () => {
-      let obj = Object.assign({}, this.getSystem())
-      return obj
+      return Object.assign({}, this.getSystem())
     }
   }
 
@@ -290,6 +339,29 @@ function systemExtend(dest={}, src={}) {
   if(!isObject(src)) {
     return dest
   }
+
+  // Wrap components
+  // Parses existing components in the system, and prepares them for wrapping via getComponents
+  if(src.wrapComponents) {
+    objMap(src.wrapComponents, (wrapperFn, key) => {
+      const ori = dest.components && dest.components[key]
+      if(ori && Array.isArray(ori)) {
+        dest.components[key] = ori.concat([wrapperFn])
+        delete src.wrapComponents[key]
+      } else if(ori) {
+        dest.components[key] = [ori, wrapperFn]
+        delete src.wrapComponents[key]
+      }
+    })
+
+    if(!Object.keys(src.wrapComponents).length) {
+      // only delete wrapComponents if we've matched all of our wrappers to components
+      // this handles cases where the component to wrap may be out of our scope,
+      // but a higher recursive `combinePlugins` call will be able to handle it.
+      delete src.wrapComponents
+    }
+  }
+
 
   // Account for wrapActions, make it an array and append to it
   // Modifies `src`

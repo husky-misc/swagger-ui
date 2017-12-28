@@ -1,4 +1,4 @@
-FROM alpine:3.4
+FROM alpine:3.5
 
 MAINTAINER fehguy
 
@@ -13,6 +13,7 @@ ENV OAUTH_APP_NAME "**None**"
 ENV OAUTH_ADDITIONAL_PARAMS "**None**"
 ENV SWAGGER_JSON "/app/swagger.json"
 ENV PORT 80
+ENV BASE_URL ""
 
 RUN apk add --update nginx
 RUN mkdir -p /run/nginx

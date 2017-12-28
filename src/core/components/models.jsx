@@ -1,40 +1,48 @@
-import React, { Component, PropTypes } from "react"
-
+import React, { Component } from "react"
+import PropTypes from "prop-types"
 
 export default class Models extends Component {
   static propTypes = {
     getComponent: PropTypes.func,
     specSelectors: PropTypes.object,
     layoutSelectors: PropTypes.object,
-    layoutActions: PropTypes.object
+    layoutActions: PropTypes.object,
+    getConfigs: PropTypes.func.isRequired
   }
 
   render(){
-    let { specSelectors, getComponent, layoutSelectors, layoutActions } = this.props
+    let { specSelectors, getComponent, layoutSelectors, layoutActions, getConfigs } = this.props
     let definitions = specSelectors.definitions()
-    let showModels = layoutSelectors.isShown("models", true)
+    let { docExpansion, defaultModelsExpandDepth } = getConfigs()
+    if (!definitions.size || defaultModelsExpandDepth < 0) return null
 
-    const Model = getComponent("model")
-    const Collapse = getComponent("Collapse")
+    let showModels = layoutSelectors.isShown("models", defaultModelsExpandDepth > 0 && docExpansion !== "none")
+    const specPathBase = specSelectors.isOAS3() ? ["components", "schemas"] : ["definitions"]
 
-    if (!definitions.size) return null
+    const ModelWrapper = getComponent("ModelWrapper")
+    const Collapse = getComponent("Collapse")    
 
     return <section className={ showModels ? "models is-open" : "models"}>
       <h4 onClick={() => layoutActions.show("models", !showModels)}>
         <span>Models</span>
         <svg width="20" height="20">
-          <use xlinkHref="#large-arrow" />
+          <use xlinkHref={showModels ? "#large-arrow-down" : "#large-arrow"} />
         </svg>
       </h4>
-      <Collapse isOpened={showModels} animated>
+      <Collapse isOpened={showModels}>
         {
           definitions.entrySeq().map( ( [ name, model ])=>{
-            return <div className="model-container" key={ `models-section-${name}` }>
-              <Model name={ name }
+
+            return <div id={ `model-${name}` } className="model-container" key={ `models-section-${name}` }>
+              <ModelWrapper name={ name }
+                     expandDepth={ defaultModelsExpandDepth }
                      schema={ model }
-                     isRef={ true }
+                     specPath={[...specPathBase, name]}
                      getComponent={ getComponent }
-                     specSelectors={ specSelectors }/>
+                     specSelectors={ specSelectors }
+                     getConfigs = {getConfigs}
+                     layoutSelectors = {layoutSelectors}
+                     layoutActions = {layoutActions}/>
               </div>
           }).toArray()
         }
